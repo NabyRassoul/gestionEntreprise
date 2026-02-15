@@ -69,7 +69,7 @@ const Dashboard = () => {
       badge: stats.submittedThisMonth ? { text: 'Déjà soumis ce mois', color: 'green' } : null
     },
     {
-      show: isCollaborator,
+      show: isCollaborator && !isAdmin ,
       title: 'Mes CRA',
       description: 'Consultez l\'historique de vos CRA',
       icon: '📊',

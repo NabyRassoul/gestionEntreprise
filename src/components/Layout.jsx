@@ -36,7 +36,7 @@ const Layout = ({ children }) => {
       name: 'Mes CRA',
       path: '/cra/history',
       icon: '📊',
-      show: isCollaborator
+      show: isCollaborator && !isAdmin
     },
     {
       name: 'Valider les CRA',

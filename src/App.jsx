@@ -9,6 +9,7 @@ import PrivateRoute from './components/PrivateRoute'
 import ProjectsManagement from './pages/ProjectsManagement'
 import ProjectAssignments from './pages/ProjectAssignments'
 import UsersManagement from './pages/UsersManagement'
+import CRAHistory from './pages/CRAHistory'
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
                   <Route path="/admin/projects" element={<ProjectsManagement />} />
                   <Route path="/admin/assignments" element={<ProjectAssignments />} />
                   <Route path="/admin/users" element={<UsersManagement />} />
+                  <Route path="/cra/history" element={<CRAHistory />} />
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
               </Layout>

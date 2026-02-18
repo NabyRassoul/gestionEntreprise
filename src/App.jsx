@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider } from './contexts/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard-salesforce'
+import Dashboard from './pages/Dashboard'
 import SubmitCRA from './pages/SubmitCRA'
 import ValidationCRA from './pages/ValidationCRA'
 import PrivateRoute from './components/PrivateRoute'

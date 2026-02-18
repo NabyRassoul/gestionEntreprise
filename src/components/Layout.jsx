@@ -27,6 +27,12 @@ const Layout = ({ children }) => {
       show: true
     },
     {
+      name: 'Attribution Projets',
+      path: '/admin/assignments',
+      icon: '🔗',
+      show: isManager
+    },
+    {
       name: 'Soumettre mon CRA',
       path: '/cra/submit',
       icon: '📝',
@@ -39,9 +45,9 @@ const Layout = ({ children }) => {
       show: isCollaborator && !isAdmin
     },
     {
-      name: 'Valider les CRA',
+      name: 'Gestion des CRA',
       path: '/admin/validation',
-      icon: '✅',
+      icon: '📝',
       show: isManager
     },
     {
@@ -50,12 +56,7 @@ const Layout = ({ children }) => {
       icon: '📁',
       show: isManager
     },
-    {
-      name: 'Attribution Projets',
-      path: '/admin/assignments',
-      icon: '🔗',
-      show: isManager
-    },
+    
     {
       name: 'Gestion Utilisateurs',
       path: '/admin/users',
@@ -79,13 +80,13 @@ const Layout = ({ children }) => {
           {sidebarOpen ? (
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 bg-salesforce-blue rounded flex items-center justify-center text-white font-bold">
-                C
+                TT
               </div>
-              <span className="font-semibold text-gray-900">CRA Manager</span>
+              <span className="font-semibold text-gray-900">TeamTrack</span>
             </div>
           ) : (
             <div className="w-8 h-8 bg-salesforce-blue rounded flex items-center justify-center text-white font-bold mx-auto">
-              C
+              TT
             </div>
           )}
           <button

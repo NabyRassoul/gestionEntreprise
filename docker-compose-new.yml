@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # N8N - Automation Workflows
+  # ============================================
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: cra-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Europe/Paris
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=changeme123
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows
+    networks:
+      - cra-network
+
+  # ============================================
+  # React Frontend (Production)
+  # ============================================
+  frontend:
+    build:
+      context: ./cra-app
+      dockerfile: Dockerfile
+    container_name: cra-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+      - VITE_SUPABASE_SERVICE_KEY=${VITE_SUPABASE_SERVICE_KEY}
+      - VITE_N8N_URL=http://n8n:5678
+    depends_on:
+      - n8n
+    networks:
+      - cra-network
+
+  # ============================================
+  # PostgreSQL (si vous voulez une DB locale)
+  # ============================================
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: cra-postgres
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5432:5432"
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DB: cra_db
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - cra-network
+
+volumes:
+  n8n_data:
+    driver: local
+  # postgres_data:
+  #   driver: local
+
+networks:
+  cra-network:
+    driver: bridge

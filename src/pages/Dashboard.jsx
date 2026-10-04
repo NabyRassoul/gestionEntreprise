@@ -1,375 +1,469 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { useState, useEffect } from 'react'
-import { supabase } from '../services/supabase'
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { useState, useEffect, useMemo } from 'react'
+import Alert from '@mui/material/Alert'
+import AlertTitle from '@mui/material/AlertTitle'
+import Button from '@mui/material/Button'
+import api from '../api'
+import {
+  IconHome, IconWarning, IconPending, IconCheck, IconX, IconUsers, IconFolder, IconSend, IconEdit,
+  IconHistory, IconLink, IconTrend, IconZap, IconInbox, IconChevronRight,
+} from '../components/Icons'
+const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
+
+const STATUS = {
+  none: { label: 'Non commencé', cls: 'bg-white text-gray-500 border-gray-300 border-dashed' },
+  draft: { label: 'Brouillon', cls: 'bg-gray-100 text-gray-700 border-gray-300' },
+  submitted: { label: 'En attente', cls: 'bg-yellow-100 text-yellow-800 border-yellow-300' },
+  validated: { label: 'Validé', cls: 'bg-green-100 text-green-800 border-green-300' },
+  rejected: { label: 'Rejeté', cls: 'bg-red-100 text-red-800 border-red-300' },
+}
+const ROLE_LABELS = { admin: 'Administrateur', manager: 'Manager', collaborator: 'Collaborateur' }
+
+const timeAgo = (d) => {
+  if (!d) return ''
+  const diff = (Date.now() - new Date(d).getTime()) / 1000
+  if (diff < 60) return "à l'instant"
+  if (diff < 3600) return `il y a ${Math.floor(diff / 60)} min`
+  if (diff < 86400) return `il y a ${Math.floor(diff / 3600)} h`
+  const days = Math.floor(diff / 86400)
+  return days === 1 ? 'hier' : `il y a ${days} j`
+}
 
 const Dashboard = () => {
-  const { profile } = useAuth()
-  const [stats, setStats] = useState({
-    pendingCRA: 0,
-    submittedThisMonth: false,
-    totalProjects: 0,
-    validatedCRA: 0,
-    rejectedCRA: 0,
-    totalUsers: 0,
-    totalAssignments: 0,
-    monthlyStats: []
-  })
+  const { user, token } = useAuth()
+
+
+  const [data, setData] = useState({ cras: [], projects: [], users: [], assignments: [] })
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadStats()
-  }, [profile])
+    if (token) loadData()
+  }, [token])
 
-  const loadStats = async () => {
-    if (!profile) return
-
-    const currentMonth = new Date().getMonth() + 1
-    const currentYear = new Date().getFullYear()
-
-    // CRA du mois en cours de l'utilisateur
-    const { data: myCRA } = await supabase
-      .from('cra_submissions')
-      .select('*')
-      .eq('user_id', profile.id)
-      .eq('month', currentMonth)
-      .eq('year', currentYear)
-      .single()
-
-    let pendingCount = 0
-    let validatedCount = 0
-    let rejectedCount = 0
-    let totalUsers = 0
-    let totalAssignments = 0
-    let monthlyStats = []
-
-    // Stats pour managers/admins
-    if (profile.role === 'admin' || profile.role === 'manager') {
-      // CRA par statut
-      const { data: pending } = await supabase
-        .from('cra_submissions')
-        .select('id')
-        .eq('status', 'submitted')
-      
-      const { data: validated } = await supabase
-        .from('cra_submissions')
-        .select('id')
-        .eq('status', 'validated')
-      
-      const { data: rejected } = await supabase
-        .from('cra_submissions')
-        .select('id')
-        .eq('status', 'rejected')
-      
-      pendingCount = pending?.length || 0
-      validatedCount = validated?.length || 0
-      rejectedCount = rejected?.length || 0
-
-      // Total utilisateurs
-      const { data: users } = await supabase
-        .from('users')
-        .select('id')
-        .eq('is_active', true)
-      
-      totalUsers = users?.length || 0
-
-      // Total assignations
-      const { data: assignments } = await supabase
-        .from('project_assignments')
-        .select('id')
-      
-      totalAssignments = assignments?.length || 0
-
-      // Stats mensuelles (6 derniers mois)
-      const monthsData = []
-      for (let i = 5; i >= 0; i--) {
-        const date = new Date()
-        date.setMonth(date.getMonth() - i)
-        const month = date.getMonth() + 1
-        const year = date.getFullYear()
-
-        const { data: monthCRAs } = await supabase
-          .from('cra_submissions')
-          .select('status')
-          .eq('month', month)
-          .eq('year', year)
-
-        const submitted = monthCRAs?.filter(c => c.status === 'submitted').length || 0
-        const validated = monthCRAs?.filter(c => c.status === 'validated').length || 0
-        const rejected = monthCRAs?.filter(c => c.status === 'rejected').length || 0
-
-        monthsData.push({
-          name: date.toLocaleDateString('fr-FR', { month: 'short' }),
-          'En attente': submitted,
-          'Validés': validated,
-          'Rejetés': rejected
-        })
-      }
-      monthlyStats = monthsData
-    }
-
-    // Projets assignés à l'utilisateur
-    const { data: projects } = await supabase
-      .from('project_assignments')
-      .select('id')
-      .eq('user_id', profile.id)
-
-    setStats({
-      pendingCRA: pendingCount,
-      submittedThisMonth: !!myCRA,
-      totalProjects: projects?.length || 0,
-      validatedCRA: validatedCount,
-      rejectedCRA: rejectedCount,
-      totalUsers,
-      totalAssignments,
-      monthlyStats
-    })
+    const loadData = async () => {
+    setLoading(true)
+    // Si un appel échoue (ex. 403 pour un collaborateur), on continue avec une liste vide
+    const safe = (path) => api.list(path).catch(() => [])
+    const [cras, projects, users, assignments] = await Promise.all([
+      safe('/cra-submissions/'),
+      safe('/projects/all_projects/'),
+      safe('/users/'),
+      safe('/assignments/'),
+    ])
+    setData({ cras, projects, users, assignments })
+    setLoading(false)
   }
 
-  const isAdmin = profile?.role === 'admin'
-  const isManager = profile?.role === 'manager' || isAdmin
-  const isCollaborator = profile?.role === 'collaborator' || isManager
+  // ---------- Rôles ----------
+  const role = user?.role
+  const isAdmin = role === 'admin'
+  const isManager = role === 'manager' || isAdmin
+  const doesCRA = !isAdmin // collaborateurs + managers saisissent leurs CRA
 
-  // Données pour le graphique en secteurs (CRA)
-  const craStatusData = [
-    { name: 'En attente', value: stats.pendingCRA, color: '#FFB75D' },
-    { name: 'Validés', value: stats.validatedCRA, color: '#04844B' },
-    { name: 'Rejetés', value: stats.rejectedCRA, color: '#C23934' }
-  ].filter(item => item.value > 0)
+  // ---------- Calculs ----------
+  const now = new Date()
+  const month = now.getMonth() + 1
+  const year = now.getFullYear()
+  const monthLabel = `${MONTHS[month - 1]} ${year}`
 
-  const cards = [
-    {
-      show: isCollaborator && !isAdmin,
-      title: 'Soumettre mon CRA',
-      description: 'Remplissez votre compte rendu d\'activité mensuel',
-      icon: '📝',
-      path: '/cra/submit',
-      color: 'salesforce-blue',
-      badge: stats.submittedThisMonth ? { text: 'Déjà soumis ce mois', color: 'green' } : null
-    },
-    {
-      show: isCollaborator && !isAdmin,
-      title: 'Mes CRA',
-      description: 'Consultez l\'historique de vos CRA',
-      icon: '📊',
-      path: '/cra/history',
-      color: 'salesforce-blue',
-      badge: { text: `${stats.totalProjects} projets`, color: 'blue' }
-    },
-    {
-      show: isManager,
-      title: 'Attribution Projets',
-      description: 'Assigner des projets aux collaborateurs',
-      icon: '🔗',
-      path: '/admin/assignments',
-      color: 'salesforce-blue'
-    },
-    {
-      show: isManager,
-      title: 'Gestion des CRA',
-      description: 'Validez ou rejetez les CRA de votre équipe',
-      icon: '📝',
-      path: '/admin/validation',
-      color: 'salesforce-success',
-      badge: stats.pendingCRA > 0 ? { text: `${stats.pendingCRA} en attente`, color: 'yellow' } : null
-    },
-    {
-      show: isManager,
-      title: 'Gestion des Projets',
-      description: 'Créer, modifier et gérer les projets',
-      icon: '📁',
-      path: '/admin/projects',
-      color: 'salesforce-blue'
-    },
-    {
-      show: isAdmin,
-      title: 'Gestion Utilisateurs',
-      description: 'Créer et gérer les comptes utilisateurs',
-      icon: '👥',
-      path: '/admin/users',
-      color: 'salesforce-blue'
+  const d = useMemo(() => {
+    const { cras, projects, users, assignments } = data
+    const userName = (id) => {
+      const u = users.find((x) => x.id === id)
+      return u ? `${u.first_name} ${u.last_name}`.trim() || u.email : '—'
     }
-  ]
+    const projectById = new Map(projects.map((p) => [p.id, p]))
+    const activeProjectIds = new Set(projects.filter((p) => p.status === 'active').map((p) => p.id))
+    const activeUserIds = new Set(users.filter((u) => u.role !== 'admin' && u.is_active !== false).map((u) => u.id))
+
+    const monthCras = cras.filter((c) => Number(c.month) === month && Number(c.year) === year)
+    const findCra = (uid, pid) => monthCras.find((c) => c.user === uid && Number(c.project) === pid)
+
+    // --- Personnel ---
+    const myMonth = assignments
+      .filter((a) => a.user === user?.id && activeProjectIds.has(a.project))
+      .map((a) => {
+        const cra = findCra(user?.id, a.project)
+        return {
+          id: a.project,
+          name: a.project_name || projectById.get(a.project)?.name,
+          code: a.project_code || projectById.get(a.project)?.code,
+          status: cra?.status || 'none',
+          cra,
+        }
+      })
+    const myRejected = cras.filter((c) => c.user === user?.id && c.status === 'rejected')
+    const myDone = myMonth.filter((m) => ['submitted', 'validated'].includes(m.status)).length
+
+    // --- Équipe (manager/admin) ---
+    const pending = cras
+      .filter((c) => c.status === 'submitted' && c.user !== user?.id)
+      .sort((a, b) => new Date(a.submitted_at) - new Date(b.submitted_at))
+
+    const expected = assignments.filter((a) => activeProjectIds.has(a.project) && activeUserIds.has(a.user))
+    const late = expected
+      .filter((a) => {
+        const c = findCra(a.user, a.project)
+        return !c || ['draft', 'rejected'].includes(c.status)
+      })
+      .map((a) => ({
+        key: a.id,
+        user: userName(a.user),
+        project: a.project_name || projectById.get(a.project)?.name,
+        status: findCra(a.user, a.project)?.status || 'none',
+      }))
+
+    const submittedMonth = monthCras.filter((c) => c.status === 'submitted').length
+    const validatedMonth = monthCras.filter((c) => c.status === 'validated').length
+    const rejectedMonth = monthCras.filter((c) => c.status === 'rejected').length
+
+    const recent = [...cras]
+      .filter((c) => c.submitted_at)
+      .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))
+      .slice(0, 6)
+
+    return {
+      myMonth, myRejected, myDone,
+      pending, expected: expected.length, late,
+      submittedMonth, validatedMonth, rejectedMonth,
+      activeUsers: activeUserIds.size, activeProjects: activeProjectIds.size,
+      recent, userName,
+    }
+  }, [data, user?.id, month, year])
+
+  // ---------- Salutation ----------
+  const hour = now.getHours()
+  const greeting = hour < 12 ? 'Bonjour' : hour < 18 ? 'Bon après-midi' : 'Bonsoir'
+  const todayLabel = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+
+  // ---------- Actions rapides ----------
+  const actions = [
+    { show: doesCRA, icon: IconEdit, label: 'Saisir mon CRA', to: '/cra/submit' },
+    { show: doesCRA, icon: IconHistory, label: 'Historique de mes CRA', to: '/cra/history' },
+    { show: isManager, icon: IconCheck, label: 'Valider les CRA', to: '/admin/validation', count: d.pending.length },
+    { show: isManager, icon: IconFolder, label: 'Projets', to: '/admin/projects' },
+    { show: isManager, icon: IconLink, label: 'Attributions', to: '/admin/assignments' },
+    { show: isAdmin, icon: IconUsers, label: 'Utilisateurs', to: '/admin/users' },
+  ].filter((a) => a.show)
+
+  // ---------- Rendu ----------
+  if (loading) return <DashboardSkeleton />
+
+  const progress = d.expected ? Math.round(((d.submittedMonth + d.validatedMonth) / d.expected) * 100) : 0
+  const validatedPct = d.expected ? Math.round((d.validatedMonth / d.expected) * 100) : 0
 
   return (
-    <div>
-      {/* Welcome Section */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Bienvenue, {profile?.first_name} ! 👋
-        </h1>
-        <p className="text-gray-600">
-          {profile?.role === 'admin' && 'Vous avez accès à toutes les fonctionnalités administrateur'}
-          {profile?.role === 'manager' && 'Gérez votre équipe et validez les CRA'}
-          {profile?.role === 'collaborator' && 'Soumettez vos CRA et suivez vos projets'}
-        </p>
+    <div className="space-y-6">
+      {/* Bandeau d'accueil */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="h-1.5 bg-gradient-to-r from-salesforce-blue via-blue-400 to-cyan-400" />
+        <div className="px-6 py-5 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-lg bg-salesforce-blue text-white flex items-center justify-center shadow">
+              <IconHome className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-500">Accueil</p>
+              <h1 className="text-2xl font-bold text-gray-900">
+                {greeting}, {user?.first_name} 👋
+              </h1>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-gray-700 capitalize">{todayLabel}</p>
+            <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-salesforce-blue border border-blue-200">
+              {ROLE_LABELS[role] || role}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Stats pour Managers/Admins */}
-      {isManager && (
-        <>
-          {/* KPIs */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            <div className="card">
-              <div className="card-body">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">CRA en attente</p>
-                    <p className="text-3xl font-bold text-yellow-600">{stats.pendingCRA}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">⏳</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-body">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">CRA validés</p>
-                    <p className="text-3xl font-bold text-green-600">{stats.validatedCRA}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">✅</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-body">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Collaborateurs</p>
-                    <p className="text-3xl font-bold text-salesforce-blue">{stats.totalUsers}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">👥</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="card">
-              <div className="card-body">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Assignations</p>
-                    <p className="text-3xl font-bold text-purple-600">{stats.totalAssignments}</p>
-                  </div>
-                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                    <span className="text-2xl">🔗</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Graphiques */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {/* Graphique en secteurs - Répartition des CRA */}
-            <div className="card">
-              <div className="card-header">
-                <h3 className="font-semibold text-gray-900">Répartition des CRA</h3>
-              </div>
-              <div className="card-body">
-                {craStatusData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <PieChart>
-                      <Pie
-                        data={craStatusData}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                        outerRadius={80}
-                        fill="#8884d8"
-                        dataKey="value"
-                      >
-                        {craStatusData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-[250px] flex items-center justify-center text-gray-500">
-                    Aucun CRA pour le moment
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Graphique en barres - Évolution mensuelle */}
-            <div className="card">
-              <div className="card-header">
-                <h3 className="font-semibold text-gray-900">Évolution sur 6 mois</h3>
-              </div>
-              <div className="card-body">
-                {stats.monthlyStats.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={stats.monthlyStats}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="Validés" fill="#04844B" />
-                      <Bar dataKey="En attente" fill="#FFB75D" />
-                      <Bar dataKey="Rejetés" fill="#C23934" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-[250px] flex items-center justify-center text-gray-500">
-                    Aucune donnée disponible
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </>
+      
+            {/* Alerte CRA rejetés */}
+      {doesCRA && d.myRejected.length > 0 && (
+        <Alert
+          severity="error"
+          action={
+            <Button component={Link} to="/cra/submit" color="error" variant="contained" size="small">
+              Corriger
+            </Button>
+          }
+        >
+          <AlertTitle>
+            {d.myRejected.length} CRA rejeté{d.myRejected.length > 1 ? 's' : ''} à corriger
+          </AlertTitle>
+          {d.myRejected.map((c) => `${c.project_name} (${MONTHS[c.month - 1]})`).join(' · ')}
+        </Alert>
       )}
 
-      {/* Action Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {cards.filter(card => card.show).map((card, index) => (
-          <Link
-            key={index}
-            to={card.path}
-            className="card hover:shadow-salesforce-lg transition-shadow group"
-          >
-            <div className="card-body">
-              <div className="flex items-start justify-between mb-4">
-                <div className={`w-12 h-12 bg-${card.color} bg-opacity-10 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                  <span className="text-2xl">{card.icon}</span>
+      {/* KPIs */}
+      <div className={`grid grid-cols-2 ${isManager ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
+        {isManager ? (
+          <>
+            <Kpi to="/admin/validation" icon={IconPending} label="À valider" value={d.pending.length} color="text-yellow-600" bg="bg-yellow-50" />
+            <Kpi to="/admin/validation" icon={IconCheck} label={`Validés · ${MONTHS[month - 1]}`} value={d.validatedMonth} color="text-green-600" bg="bg-green-50" />
+            <Kpi to="/admin/validation" icon={IconX} label={`Rejetés · ${MONTHS[month - 1]}`} value={d.rejectedMonth} color="text-red-600" bg="bg-red-50" />
+            <Kpi to={isAdmin ? '/admin/users' : '/admin/assignments'} icon={IconUsers} label="Collaborateurs actifs" value={d.activeUsers} color="text-salesforce-blue" bg="bg-blue-50" />
+            <Kpi to="/admin/projects" icon={IconFolder}label="Projets actifs" value={d.activeProjects} color="text-purple-600" bg="bg-purple-50" />
+          </>
+        ) : (
+          <>
+            <Kpi to="/cra/submit" icon={IconFolder} label="Mes projets" value={d.myMonth.length} color="text-salesforce-blue" bg="bg-blue-50" />
+            <Kpi to="/cra/submit" icon={IconSend} label={`Soumis · ${MONTHS[month - 1]}`} value={`${d.myDone}/${d.myMonth.length}`} color="text-green-600" bg="bg-green-50" />
+            <Kpi to="/cra/submit" icon={IconEdit} label="Brouillons" value={d.myMonth.filter((m) => m.status === 'draft').length} color="text-gray-700" bg="bg-gray-50" />
+            <Kpi to="/cra/submit" icon={IconX} label="À corriger" value={d.myRejected.length} color="text-red-600" bg="bg-red-50" />
+          </>
+        )}
+      </div>
+
+      {/* Contenu */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Colonne principale */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Mes CRA du mois */}
+          {doesCRA && (
+            <Card
+              icon={IconEdit}
+              title={`Mes CRA · ${monthLabel}`}
+              subtitle={`${d.myDone} sur ${d.myMonth.length} projet(s) soumis`}
+              action={<Link to="/cra/submit" className="text-sm text-salesforce-blue hover:underline">Ouvrir le calendrier</Link>}
+            >
+              {d.myMonth.length === 0 ? (
+                <Empty icon={IconInbox} text="Aucun projet attribué. Contactez votre manager." />
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {d.myMonth.map((m) => (
+                    <li key={m.id} className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-gray-50">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 truncate">{m.name}</p>
+                        <p className="text-xs text-gray-500">{m.code}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge status={m.status} />
+                        {['none', 'draft', 'rejected'].includes(m.status) ? (
+                          <Link
+                            to="/cra/submit"
+                            className={`px-3 py-1 text-xs font-medium rounded border ${
+                              m.status === 'rejected'
+                                ? 'border-red-300 text-red-700 hover:bg-red-50'
+                                : 'border-salesforce-blue text-salesforce-blue hover:bg-blue-50'
+                            }`}
+                          >
+                            {m.status === 'rejected' ? 'Corriger' : m.status === 'draft' ? 'Continuer' : 'Saisir'}
+                          </Link>
+                        ) : (
+                          <span className="w-[72px]" />
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          )}
+
+          {/* CRA à valider */}
+          {isManager && (
+            <Card
+              icon={IconCheck}
+              title="CRA à valider"
+              subtitle={d.pending.length ? `${d.pending.length} en attente · les plus anciens en premier` : 'Tout est à jour'}
+              action={<Link to="/admin/validation" className="text-sm text-salesforce-blue hover:underline">Voir tout</Link>}
+            >
+              {d.pending.length === 0 ? (
+                <Empty icon={IconCheck} text="Aucun CRA en attente de validation" />
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-5 py-2 text-left text-xs font-semibold uppercase text-gray-600">Collaborateur</th>
+                      <th className="px-5 py-2 text-left text-xs font-semibold uppercase text-gray-600">Projet</th>
+                      <th className="px-5 py-2 text-left text-xs font-semibold uppercase text-gray-600">Mois</th>
+                      <th className="px-5 py-2 text-left text-xs font-semibold uppercase text-gray-600">Soumis</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {d.pending.slice(0, 5).map((c) => (
+                      <tr key={c.id} className="hover:bg-blue-50/40">
+                        <td className="px-5 py-2.5 font-medium text-salesforce-blue">{c.user_name?.trim() || c.user_email}</td>
+                        <td className="px-5 py-2.5 text-gray-700">{c.project_name || '—'}</td>
+                        <td className="px-5 py-2.5 text-gray-700">{MONTHS[c.month - 1]} {c.year}</td>
+                        <td className="px-5 py-2.5 text-gray-500">{timeAgo(c.submitted_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {d.pending.length > 5 && (
+                <div className="px-5 py-2 border-t border-gray-100 text-right">
+                  <Link to="/admin/validation" className="text-xs text-salesforce-blue hover:underline">
+                    + {d.pending.length - 5} autre(s)
+                  </Link>
                 </div>
-                {card.badge && (
-                  <span className={`badge badge-${card.badge.color}`}>
-                    {card.badge.text}
-                  </span>
+              )}
+            </Card>
+          )}
+
+          {/* Suivi du mois */}
+          {isManager && (
+            <Card icon={IconTrend} title={`Suivi · ${monthLabel}`} subtitle={`${d.expected} CRA attendus (collaborateurs × projets actifs)`}>
+              <div className="px-5 py-4">
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="text-gray-700">Soumis ou validés</span>
+                  <span className="font-semibold text-gray-900">{progress}%</span>
+                </div>
+                <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex">
+                  <div className="bg-green-500 transition-all duration-700" style={{ width: `${validatedPct}%` }} />
+                  <div className="bg-yellow-400 transition-all duration-700" style={{ width: `${Math.max(progress - validatedPct, 0)}%` }} />
+                </div>
+                <div className="flex gap-4 mt-2 text-xs text-gray-600">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-green-500" /> Validés {d.validatedMonth}</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-yellow-400" /> En attente {d.submittedMonth}</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-gray-200" /> Manquants {d.late.length}</span>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100">
+                <p className="px-5 pt-3 pb-1 text-xs font-semibold uppercase text-gray-600">
+                  Retardataires ({d.late.length})
+                </p>
+                {d.late.length === 0 ? (
+                  <Empty icon={IconCheck} text="Tous les CRA du mois sont soumis" />
+                ) : (
+                  <ul className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                    {d.late.map((l) => (
+                      <li key={l.key} className="px-5 py-2 flex items-center justify-between text-sm">
+                        <span className="text-gray-900">
+                          {l.user} <span className="text-gray-400">· {l.project}</span>
+                        </span>
+                        <Badge status={l.status} />
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                {card.title}
-              </h3>
-              <p className="text-sm text-gray-600">
-                {card.description}
-              </p>
-              <div className="mt-4 flex items-center text-salesforce-blue text-sm font-medium">
-                Accéder
-                <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                </svg>
-              </div>
-            </div>
-          </Link>
-        ))}
+            </Card>
+          )}
+        </div>
+
+        {/* Colonne droite */}
+        <div className="space-y-6">
+          <Card icon={IconZap} title="Actions rapides">
+            <ul className="divide-y divide-gray-100">
+              {actions.map((a) => (
+                <li key={a.to}>
+                  <Link to={a.to} className="px-5 py-3 flex items-center justify-between group hover:bg-blue-50/50">
+                    <span className="flex items-center gap-3 text-sm text-gray-800">
+                                           <span className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <a.icon className="w-4 h-4 text-salesforce-blue" />
+                      </span>
+                      {a.label}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      {a.count > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">{a.count}</span>
+                      )}
+                       <IconChevronRight className="w-4 h-4 text-gray-300 group-hover:text-salesforce-blue group-hover:translate-x-0.5 transition" />
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          <Card icon={IconHistory} title="Activité récente">
+            {d.recent.length === 0 ? (
+              <Empty icon={IconInbox} text="Aucune activité pour le moment" />
+            ) : (
+              <ul className="px-5 py-3 space-y-4">
+                {d.recent.map((c) => (
+                  <li key={c.id} className="flex gap-3">
+                    <span
+                      className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${
+                        c.status === 'validated' ? 'bg-green-500' : c.status === 'rejected' ? 'bg-red-500' : 'bg-yellow-400'
+                      }`}
+                    />
+                    <div className="min-w-0 text-sm">
+                      <p className="text-gray-800">
+                        <span className="font-medium">{c.user === user?.id ? 'Vous' : c.user_name?.trim() || c.user_email}</span>
+                        {' '}— {c.project_name || 'CRA'} · {MONTHS[c.month - 1]}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {STATUS[c.status]?.label} · {timeAgo(c.submitted_at)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   )
 }
+
+// ---------- Composants ----------
+const Card = ({ icon: Icon, title, subtitle, action, children }) => (
+  <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+    <div className="px-5 py-3 border-b border-gray-200 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="w-8 h-8 rounded bg-blue-50 flex items-center justify-center flex-shrink-0">
+          <Icon className="w-4 h-4 text-salesforce-blue" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-semibold text-gray-900 truncate">{title}</h2>
+          {subtitle && <p className="text-xs text-gray-500 truncate">{subtitle}</p>}
+        </div>
+      </div>
+      {action}
+    </div>
+    {children}
+  </div>
+)
+
+const Kpi = ({ to, icon: Icon, label, value, color, bg }) => (
+  <Link
+    to={to}
+    className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 hover:shadow-md hover:-translate-y-0.5 transition-all group"
+  >
+    <div className="flex items-center justify-between mb-2">
+      <p className="text-xs text-gray-600 truncate">{label}</p>
+      <span className={`w-8 h-8 rounded-full ${bg} flex items-center justify-center group-hover:scale-110 transition-transform`}>
+        <Icon className={`w-4 h-4 ${color}`} />
+      </span>
+    </div>
+    <p className={`text-3xl font-bold ${color}`}>{value}</p>
+  </Link>
+)
+
+const Empty = ({ icon: Icon, text }) => (
+  <div className="px-5 py-8 text-center">
+    <Icon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+    <p className="text-sm text-gray-500">{text}</p>
+  </div>
+)
+const Badge = ({ status }) => (
+  <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium border whitespace-nowrap ${STATUS[status]?.cls}`}>
+    {STATUS[status]?.label}
+  </span>
+)
+
+
+const DashboardSkeleton = () => (
+  <div className="space-y-6 animate-pulse">
+    <div className="h-24 bg-white rounded-lg border border-gray-200" />
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="h-24 bg-white rounded-lg border border-gray-200" />
+      ))}
+    </div>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="lg:col-span-2 h-80 bg-white rounded-lg border border-gray-200" />
+      <div className="h-80 bg-white rounded-lg border border-gray-200" />
+    </div>
+  </div>
+)
 
 export default Dashboard

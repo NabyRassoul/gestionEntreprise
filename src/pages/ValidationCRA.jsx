@@ -56,7 +56,7 @@ const ValidationCRA = () => {
           .filter((c) => ['submitted', 'validated', 'rejected'].includes(c.status))
           .map((c) => ({ ...c, totalDays: c.total_days }))
       )
-      setLeaves(leavesList)
+     setLeaves(leavesList.filter((l) => l.leave_type !== 'tt'))
     } catch (e) {
       showMsg('error', `Erreur lors du chargement des CRA : ${e.message}`)
     } finally {

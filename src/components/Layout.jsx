@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import NotificationBell from './NotificationBell'
 import {
   IconHome, IconLink, IconEdit, IconHistory, IconCheck, IconFolder, IconUsers, IconHoliday,
-  IconChevronLeft, IconChevronRight, IconChevronDown, IconLogout,IconUser,
+  IconChevronLeft, IconChevronRight, IconChevronDown, IconLogout,IconUser,IconSettings,IconLeave,
 } from './Icons'
 const Layout = ({ children }) => {
   const { user, logout } = useAuth()
@@ -73,6 +73,16 @@ const Layout = ({ children }) => {
       path: '/profile', 
       icon: IconUser, 
       show: false },
+
+    { name: 'Paramètres absences', 
+      path: '/admin/leave-settings',
+       icon: IconSettings, 
+       show: isAdmin },
+        { name: 'Mes absences', 
+          path: '/leaves', 
+          icon: IconLeave, 
+          show: true },
+      { name: 'Absences équipe', path: '/admin/leaves', icon: IconLeave, show: isManager },
   ]
 
   const isActive = (path) => location.pathname === path

@@ -2,7 +2,7 @@ import api from '../api'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { IconBell, IconBellOff, IconFolder, IconNoSymbol, IconSend, IconCheck, IconX } from './Icons'
+import { IconBell, IconBellOff, IconFolder, IconNoSymbol, IconSend, IconCheck, IconX,IconLeave } from './Icons'
 const POLL_MS = 30000
 const TYPES = {
   project_assigned: { icon: IconFolder, bg: 'bg-blue-100', fg: 'text-blue-700' },
@@ -10,6 +10,10 @@ const TYPES = {
   cra_submitted: { icon: IconSend, bg: 'bg-yellow-100', fg: 'text-yellow-700' },
   cra_validated: { icon: IconCheck, bg: 'bg-green-100', fg: 'text-green-700' },
   cra_rejected: { icon: IconX, bg: 'bg-red-100', fg: 'text-red-700' },
+  leave_submitted: { icon: IconLeave, bg: 'bg-purple-100', fg: 'text-purple-700' },
+  leave_approved: { icon: IconCheck, bg: 'bg-green-100', fg: 'text-green-700' },
+  leave_rejected: { icon: IconX, bg: 'bg-red-100', fg: 'text-red-700' },
+  leave_cancelled: { icon: IconNoSymbol, bg: 'bg-gray-100', fg: 'text-gray-600' },
 }
 
 const timeAgo = (d) => {

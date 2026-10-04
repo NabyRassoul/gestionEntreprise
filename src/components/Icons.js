@@ -44,4 +44,6 @@ export {
   FiDownload as IconDownload,
   FiUser as IconUser,
   FiSave as IconSave,
+  FiSettings as IconSettings,
+  FiMinus as IconMinus,
 } from 'react-icons/fi'

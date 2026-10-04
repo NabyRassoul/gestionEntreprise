@@ -13,6 +13,9 @@ import UsersManagement from './pages/UsersManagement'
 import Holidays from './pages/Holidays'
 import { FeedbackProvider } from './contexts/FeedbackContext'
 import Profile from './pages/Profile'
+import LeaveSettings from './pages/LeaveSettings'
+import MyLeaves from './pages/MyLeaves'
+import LeaveValidation from './pages/LeaveValidation'
 // Qui peut accéder à quoi
 const CONTRIBUTORS = ['collaborator', 'manager'] // saisissent un CRA
 const MANAGERS = ['manager', 'admin']
@@ -37,18 +40,21 @@ function App() {
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard />} />
                      <Route path="/profile" element={<Profile />} />
+                      <Route path="/leaves" element={<MyLeaves />} />
                     {/* Collaborateurs & managers */}
                     <Route path="/cra/submit" element={guard(<SubmitCRA />, CONTRIBUTORS)} />
                     <Route path="/cra/history" element={guard(<CRAHistory />, CONTRIBUTORS)} />
 
                     {/* Managers & admins */}
                     <Route path="/admin/validation" element={guard(<ValidationCRA />, MANAGERS)} />
+                    <Route path="/admin/leaves" element={guard(<LeaveValidation />, MANAGERS)} />
                     <Route path="/admin/projects" element={guard(<ProjectsManagement />, MANAGERS)} />
                     <Route path="/admin/assignments" element={guard(<ProjectAssignments />, MANAGERS)} />
 
                     {/* Admins */}
                     <Route path="/admin/users" element={guard(<UsersManagement />, ADMINS)} />
                     <Route path="/admin/holidays" element={guard(<Holidays />, ADMINS)} />
+                    <Route path="/admin/leave-settings" element={guard(<LeaveSettings />, ADMINS)} />
 
                     {/* Racine + URL inconnue → dashboard */}
                     <Route path="/" element={<Navigate to="/dashboard" replace />} />

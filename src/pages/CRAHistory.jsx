@@ -54,7 +54,7 @@ const CRAHistory = () => {
         totalDays: c.total_days,
       }))
       setCras(enriched)
-      setLeaves(leavesList.filter((l) => l.user === user.id))
+            setLeaves(leavesList.filter((l) => l.user === user.id && l.leave_type !== 'tt'))
 
       // Jours fériés des années concernées
       const years = [...new Set([...enriched.map((c) => c.year), new Date().getFullYear()])]
@@ -168,7 +168,7 @@ const CRAHistory = () => {
     { key: 'v', label: 'CRA validés', value: stats.validated, color: 'text-green-600', ring: 'ring-green-500', filter: 'validated' },
     { key: 's', label: 'En attente', value: stats.submitted, color: 'text-yellow-600', ring: 'ring-yellow-500', filter: 'submitted' },
     { key: 'r', label: 'Rejetés', value: stats.rejected, color: 'text-red-600', ring: 'ring-red-500', filter: 'rejected' },
-    { key: 'l', label: `Congés${yearSuffix}`, value: `${leaveDays} j`, color: 'text-purple-600', ring: 'ring-purple-500', filter: null },
+    { key: 'l', label: `Absences${yearSuffix}`, value: `${leaveDays} j`, color: 'text-purple-600', ring: 'ring-purple-500', filter: null },
   ]
 
   return (
@@ -369,7 +369,7 @@ const CRAHistory = () => {
 const FragmentRow = ({ children }) => <>{children}</>
 
 // ---------- Détail : mini-calendrier + liste ----------
-const LEAVE_LABELS = { paid: 'Congé payé', sick: 'Maladie', unpaid: 'Sans solde', other: 'Autre' }
+const LEAVE_LABELS = { cp: 'CP', maladie: 'Maladie', mariage: 'Mariage', bapteme: 'Baptême', deces: 'Décès', autre: 'Absence' }
 
 const CRADetail = ({ cra, leaves = [], holidays = {} }) => {
   const values = Object.fromEntries(cra.entries.map((e) => [e.work_date, parseFloat(e.days_worked)]))
@@ -385,7 +385,7 @@ const CRADetail = ({ cra, leaves = [], holidays = {} }) => {
   const shortDate = (d) => new Date(d).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' })
 
   const full = cra.entries.filter((e) => parseFloat(e.days_worked) >= 1).length
-  const half = cra.entries.filter((e) => parseFloat(e.days_worked) === 0.5).length
+  const half = cra.entries.filter((e) => parseFloat(e.days_worked) < 1).length
   const leaveTotal = leaves.reduce((s, l) => s + parseFloat(l.days), 0)
   const monthHolidays = Object.entries(holidays).filter(([d]) => d.startsWith(dateStr(1).slice(0, 7)))
 
@@ -412,8 +412,8 @@ const CRADetail = ({ cra, leaves = [], holidays = {} }) => {
             if (isWeekend(d)) cls = 'bg-gray-100 text-gray-400 border-gray-200'
             else if (holiday) { cls = 'bg-indigo-50 text-indigo-400 border-indigo-200'; title = holiday }
             else if (v >= 1) { cls = 'bg-green-100 text-green-800 border-green-500'; title = '1j' }
-            else if (v === 0.5 && leave) { cls = 'bg-gradient-to-br from-orange-100 from-50% to-purple-100 to-50% text-gray-800 border-orange-400'; title = `0.5j + ½ ${LEAVE_LABELS[leave.leave_type]}` }
-            else if (v === 0.5) { cls = 'bg-orange-100 text-orange-800 border-orange-500'; title = '0.5j' }
+            else if (v > 0 && v < 1 && leave) { cls = 'bg-gradient-to-br from-orange-100 from-50% to-purple-100 to-50% text-gray-800 border-orange-400'; title = `0.5j + ½ ${LEAVE_LABELS[leave.leave_type]}` }
+            else if (v > 0 && v < 1) { cls = 'bg-orange-100 text-orange-800 border-orange-500'; title = '0.5j' }
             else if (leave) {
               cls = parseFloat(leave.days) >= 1
                 ? 'bg-purple-100 text-purple-800 border-purple-400'
@@ -430,7 +430,7 @@ const CRADetail = ({ cra, leaves = [], holidays = {} }) => {
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-[11px] text-gray-600">
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-green-400" /> {full} complet(s)</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-orange-400" /> {half} demi(s)</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-orange-400" /> {half} partiel(s)</span>
           <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-purple-400" /> {leaveTotal}j congé</span>
           {monthHolidays.length > 0 && (
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-300" /> {monthHolidays.length} férié(s)</span>

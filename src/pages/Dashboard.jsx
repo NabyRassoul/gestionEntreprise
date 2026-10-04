@@ -7,7 +7,7 @@ import Button from '@mui/material/Button'
 import api from '../api'
 import {
   IconHome, IconWarning, IconPending, IconCheck, IconX, IconUsers, IconFolder, IconSend, IconEdit,
-  IconHistory, IconLink, IconTrend, IconZap, IconInbox, IconChevronRight,
+  IconHistory, IconLink, IconTrend, IconZap, IconInbox, IconChevronRight,IconLeave , 
 } from '../components/Icons'
 const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 
@@ -34,7 +34,7 @@ const Dashboard = () => {
   const { user, token } = useAuth()
 
 
-  const [data, setData] = useState({ cras: [], projects: [], users: [], assignments: [] })
+  const [data, setData] = useState({ cras: [], projects: [], users: [], assignments: [], leaveReqs: [], balance: null })
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -43,15 +43,16 @@ const Dashboard = () => {
 
     const loadData = async () => {
     setLoading(true)
-    // Si un appel échoue (ex. 403 pour un collaborateur), on continue avec une liste vide
-    const safe = (path) => api.list(path).catch(() => [])
-    const [cras, projects, users, assignments] = await Promise.all([
+    const safe = (path, params) => api.list(path, params).catch(() => [])
+    const [cras, projects, users, assignments, leaveReqs, balance] = await Promise.all([
       safe('/cra-submissions/'),
       safe('/projects/all_projects/'),
       safe('/users/'),
       safe('/assignments/'),
+      safe('/leave-requests/', { status: 'pending' }),
+      api.get('/leave-requests/balances/').catch(() => null),
     ])
-    setData({ cras, projects, users, assignments })
+    setData({ cras, projects, users, assignments, leaveReqs, balance })
     setLoading(false)
   }
 
@@ -123,12 +124,17 @@ const Dashboard = () => {
       .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at))
       .slice(0, 6)
 
+          // --- Absences ---
+    const leavesToReview = data.leaveReqs
+      .filter((r) => r.can_review)
+      .sort((a, b) => a.start_date.localeCompare(b.start_date))
+    const myPendingLeaves = data.leaveReqs.filter((r) => r.user === user?.id)
     return {
       myMonth, myRejected, myDone,
       pending, expected: expected.length, late,
       submittedMonth, validatedMonth, rejectedMonth,
       activeUsers: activeUserIds.size, activeProjects: activeProjectIds.size,
-      recent, userName,
+      recent, userName, leavesToReview, myPendingLeaves,
     }
   }, [data, user?.id, month, year])
 
@@ -141,6 +147,8 @@ const Dashboard = () => {
   const actions = [
     { show: doesCRA, icon: IconEdit, label: 'Saisir mon CRA', to: '/cra/submit' },
     { show: doesCRA, icon: IconHistory, label: 'Historique de mes CRA', to: '/cra/history' },
+     { show: doesCRA, icon: IconLeave, label: 'Mes absences', to: '/leaves', count: d.myPendingLeaves.length },
+    { show: isManager, icon: IconLeave, label: 'Absences équipe', to: '/admin/leaves', count: d.leavesToReview.length },
     { show: isManager, icon: IconCheck, label: 'Valider les CRA', to: '/admin/validation', count: d.pending.length },
     { show: isManager, icon: IconFolder, label: 'Projets', to: '/admin/projects' },
     { show: isManager, icon: IconLink, label: 'Attributions', to: '/admin/assignments' },
@@ -198,12 +206,13 @@ const Dashboard = () => {
       )}
 
       {/* KPIs */}
-      <div className={`grid grid-cols-2 ${isManager ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
+      <div className={`grid grid-cols-2 ${isManager ? 'lg:grid-cols-6' : 'lg:grid-cols-4'} gap-4`}>
         {isManager ? (
           <>
-            <Kpi to="/admin/validation" icon={IconPending} label="À valider" value={d.pending.length} color="text-yellow-600" bg="bg-yellow-50" />
-            <Kpi to="/admin/validation" icon={IconCheck} label={`Validés · ${MONTHS[month - 1]}`} value={d.validatedMonth} color="text-green-600" bg="bg-green-50" />
-            <Kpi to="/admin/validation" icon={IconX} label={`Rejetés · ${MONTHS[month - 1]}`} value={d.rejectedMonth} color="text-red-600" bg="bg-red-50" />
+            <Kpi to="/admin/validation" icon={IconPending} label="CRA à valider" value={d.pending.length} color="text-yellow-600" bg="bg-yellow-50" />
+            <Kpi to="/admin/validation" icon={IconCheck} label={`CRA Validés · ${MONTHS[month - 1]}`} value={d.validatedMonth} color="text-green-600" bg="bg-green-50" />
+            <Kpi to="/admin/validation" icon={IconX} label={`CRA Rejetés · ${MONTHS[month - 1]}`} value={d.rejectedMonth} color="text-red-600" bg="bg-red-50" />
+                                    <Kpi to="/admin/leaves" icon={IconLeave} label="Absences à valider" value={d.leavesToReview.length} color="text-purple-600" bg="bg-purple-50" />
             <Kpi to={isAdmin ? '/admin/users' : '/admin/assignments'} icon={IconUsers} label="Collaborateurs actifs" value={d.activeUsers} color="text-salesforce-blue" bg="bg-blue-50" />
             <Kpi to="/admin/projects" icon={IconFolder}label="Projets actifs" value={d.activeProjects} color="text-purple-600" bg="bg-purple-50" />
           </>
@@ -305,6 +314,45 @@ const Dashboard = () => {
             </Card>
           )}
 
+                  {isManager && (
+            <Card
+              icon={IconLeave}
+              title="Absences à valider"
+              subtitle={d.leavesToReview.length ? `${d.leavesToReview.length} demande(s) · les plus proches en premier` : 'Tout est à jour'}
+              action={<Link to="/admin/leaves" className="text-sm text-salesforce-blue hover:underline">Voir tout</Link>}
+            >
+              {d.leavesToReview.length === 0 ? (
+                <Empty icon={IconCheck} text="Aucune demande d'absence en attente" />
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {d.leavesToReview.slice(0, 5).map((r) => (
+                    <li key={r.id} className="px-5 py-2.5 flex items-center justify-between gap-3 hover:bg-blue-50/40">
+                      <div className="min-w-0">
+                        <p className="font-medium text-salesforce-blue truncate">{r.user_name}</p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(r.start_date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
+                          {r.end_date !== r.start_date && ` → ${new Date(r.end_date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}`}
+                          {' · '}{String(Number(r.days)).replace('.', ',')} j
+                        </p>
+                      </div>
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border whitespace-nowrap ${
+                        r.leave_type === 'tt' ? 'bg-blue-100 text-blue-800 border-blue-300' : 'bg-purple-100 text-purple-800 border-purple-300'
+                      }`}>
+                        {r.leave_type_label}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {d.leavesToReview.length > 5 && (
+                <div className="px-5 py-2 border-t border-gray-100 text-right">
+                  <Link to="/admin/leaves" className="text-xs text-salesforce-blue hover:underline">
+                    + {d.leavesToReview.length - 5} autre(s)
+                  </Link>
+                </div>
+              )}
+            </Card>
+          )}
           {/* Suivi du mois */}
           {isManager && (
             <Card icon={IconTrend} title={`Suivi · ${monthLabel}`} subtitle={`${d.expected} CRA attendus (collaborateurs × projets actifs)`}>
@@ -349,6 +397,58 @@ const Dashboard = () => {
 
         {/* Colonne droite */}
         <div className="space-y-6">
+                    {doesCRA && data.balance && (
+            <Card
+              icon={IconLeave}
+              title="Mes absences"
+              subtitle={d.myPendingLeaves.length ? `${d.myPendingLeaves.length} demande(s) en attente` : `Soldes ${data.balance.year}`}
+              action={<Link to="/leaves" className="text-sm text-salesforce-blue hover:underline">Gérer</Link>}
+            >
+              <div className="px-5 py-4 space-y-4">
+                {[
+                  {
+                    label: 'Congés payés',
+                    icon: IconLeave,
+                    b: data.balance.cp,
+                    color: 'purple',
+                    total: data.balance.cp.taken + data.balance.cp.pending + data.balance.cp.available,
+                  },
+                  { label: 'Télétravail', icon: IconHome, b: data.balance.tt, color: 'blue', total: data.balance.tt.quota },
+                ].map(({ label, icon: Icon, b, color, total }) => {
+                  const pct = (v) => (total > 0 ? Math.min(100, (v / total) * 100) : 0)
+                  const fmt = (v) => String(v).replace('.', ',')
+                  return (
+                    <div key={label}>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-1.5 text-gray-700">
+                          <Icon className={`w-4 h-4 ${color === 'purple' ? 'text-purple-600' : 'text-blue-600'}`} /> {label}
+                        </span>
+                        <span className={`font-bold ${color === 'purple' ? 'text-purple-700' : 'text-salesforce-blue'}`}>
+                          {fmt(b.available)} j
+                        </span>
+                      </div>
+                      <div className="h-1.5 mt-1.5 rounded-full bg-gray-100 overflow-hidden flex">
+                        <div className={color === 'purple' ? 'bg-purple-500' : 'bg-blue-500'} style={{ width: `${pct(b.taken)}%` }} />
+                        <div className={color === 'purple' ? 'bg-purple-300' : 'bg-blue-300'} style={{ width: `${pct(b.pending)}%` }} />
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        Pris {fmt(b.taken)} j · En attente {fmt(b.pending)} j
+                        {b.carry_over > 0 && (
+                          <span className="text-orange-600"> · dont {fmt(b.carry_over)} j de report à prendre avant le 31/12</span>
+                        )}
+                      </p>
+                    </div>
+                  )
+                })}
+                <Link
+                  to="/leaves"
+                  className="w-full px-3 py-2 text-sm border border-purple-300 text-purple-700 rounded-lg hover:bg-purple-50 flex items-center justify-center gap-2"
+                >
+                  <IconLeave className="w-4 h-4" /> Nouvelle demande
+                </Link>
+              </div>
+            </Card>
+          )}
           <Card icon={IconZap} title="Actions rapides">
             <ul className="divide-y divide-gray-100">
               {actions.map((a) => (
